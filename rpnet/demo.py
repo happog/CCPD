@@ -302,6 +302,6 @@ for i, (XI, ims) in enumerate(trainloader):
     #   The first character is Chinese character, can not be printed normally, thus is omitted.
     print(provinces[labelPred[0]])
     lpn = alphabets[labelPred[1]] + ads[labelPred[2]] + ads[labelPred[3]] + ads[labelPred[4]] + ads[labelPred[5]] + ads[labelPred[6]]
-    cv2.putText(img, lpn, (int(left_up[0]), int(left_up[1])-20), cv2.FONT_ITALIC, 2, (0, 0, 255))
+    cv2.putText(img, lpn, (int(left_up[0]), int(left_up[1])-20), cv2.FONT_ITALIC, 2, (0, 0, 255), thickness=2)
     cv2.imwrite(path.join('res', ims[0].split('/')[-1]), img)
 
