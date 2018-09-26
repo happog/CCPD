@@ -212,17 +212,30 @@ class fh02(nn.Module):
         x9 = x9.view(x9.size(0), -1)
         boxLoc = self.wR2.module.classifier(x9)
 
-        h1, w1 = _x1.data.size()[2], _x1.data.size()[3]
-        p1 = Variable(torch.FloatTensor([[w1,0,0,0],[0,h1,0,0],[0,0,w1,0],[0,0,0,h1]]).cuda(), requires_grad=False)
-        h2, w2 = _x3.data.size()[2], _x3.data.size()[3]
-        p2 = Variable(torch.FloatTensor([[w2,0,0,0],[0,h2,0,0],[0,0,w2,0],[0,0,0,h2]]).cuda(), requires_grad=False)
-        h3, w3 = _x5.data.size()[2], _x5.data.size()[3]
-        p3 = Variable(torch.FloatTensor([[w3,0,0,0],[0,h3,0,0],[0,0,w3,0],[0,0,0,h3]]).cuda(), requires_grad=False)
+        if use_gpu:
+            h1, w1 = _x1.data.size()[2], _x1.data.size()[3]
+            p1 = Variable(torch.FloatTensor([[w1,0,0,0],[0,h1,0,0],[0,0,w1,0],[0,0,0,h1]]).cuda(), requires_grad=False)
+            h2, w2 = _x3.data.size()[2], _x3.data.size()[3]
+            p2 = Variable(torch.FloatTensor([[w2,0,0,0],[0,h2,0,0],[0,0,w2,0],[0,0,0,h2]]).cuda(), requires_grad=False)
+            h3, w3 = _x5.data.size()[2], _x5.data.size()[3]
+            p3 = Variable(torch.FloatTensor([[w3,0,0,0],[0,h3,0,0],[0,0,w3,0],[0,0,0,h3]]).cuda(), requires_grad=False)
 
-        # x, y, w, h --> x1, y1, x2, y2
-        assert boxLoc.data.size()[1] == 4
-        postfix = Variable(torch.FloatTensor([[1,0,1,0],[0,1,0,1],[-0.5,0,0.5,0],[0,-0.5,0,0.5]]).cuda(), requires_grad=False)
-        boxNew = boxLoc.mm(postfix).clamp(min=0, max=1)
+            # x, y, w, h --> x1, y1, x2, y2
+            assert boxLoc.data.size()[1] == 4
+            postfix = Variable(torch.FloatTensor([[1,0,1,0],[0,1,0,1],[-0.5,0,0.5,0],[0,-0.5,0,0.5]]).cuda(), requires_grad=False)
+            boxNew = boxLoc.mm(postfix).clamp(min=0, max=1)
+        else:
+            h1, w1 = _x1.data.size()[2], _x1.data.size()[3]
+            p1 = Variable(torch.FloatTensor([[w1,0,0,0],[0,h1,0,0],[0,0,w1,0],[0,0,0,h1]]), requires_grad=False)
+            h2, w2 = _x3.data.size()[2], _x3.data.size()[3]
+            p2 = Variable(torch.FloatTensor([[w2,0,0,0],[0,h2,0,0],[0,0,w2,0],[0,0,0,h2]]), requires_grad=False)
+            h3, w3 = _x5.data.size()[2], _x5.data.size()[3]
+            p3 = Variable(torch.FloatTensor([[w3,0,0,0],[0,h3,0,0],[0,0,w3,0],[0,0,0,h3]]), requires_grad=False)
+
+            # x, y, w, h --> x1, y1, x2, y2
+            assert boxLoc.data.size()[1] == 4
+            postfix = Variable(torch.FloatTensor([[1,0,1,0],[0,1,0,1],[-0.5,0,0.5,0],[0,-0.5,0,0.5]]), requires_grad=False)
+            boxNew = boxLoc.mm(postfix).clamp(min=0, max=1)
 
         # input = Variable(torch.rand(2, 1, 10, 10), requires_grad=True)
         # rois = Variable(torch.LongTensor([[0, 1, 2, 7, 8], [0, 3, 3, 8, 8], [1, 3, 3, 8, 8]]), requires_grad=False)
@@ -253,15 +266,18 @@ def isEqual(labelGT, labelP):
 
 model_conv = fh02(numPoints, numClasses)
 model_conv = torch.nn.DataParallel(model_conv, device_ids=range(torch.cuda.device_count()))
-model_conv.load_state_dict(torch.load(resume_file))
-model_conv = model_conv.cuda()
+if use_gpu:
+    model_conv.load_state_dict(torch.load(resume_file))
+    model_conv = model_conv.cuda()
+else:
+    model_conv.load_state_dict(torch.load(resume_file, map_location='cpu'))
+    model_conv = model_conv.cpu()
 model_conv.eval()
 
 
 dst = demoTestDataLoader(args["input"].split(','), imgSize)
 trainloader = DataLoader(dst, batch_size=1, shuffle=True, num_workers=1)
 
-start = time()
 for i, (XI, ims) in enumerate(trainloader):
 
     if use_gpu:
@@ -269,20 +285,23 @@ for i, (XI, ims) in enumerate(trainloader):
     else:
         x = Variable(XI)
     # Forward pass: Compute predicted y by passing x to the model
-
+    start = time()
     fps_pred, y_pred = model_conv(x)
 
     outputY = [el.data.cpu().numpy().tolist() for el in y_pred]
     labelPred = [t[0].index(max(t[0])) for t in outputY]
 
     [cx, cy, w, h] = fps_pred.data.cpu().numpy()[0].tolist()
+    stop = time()
+    print('time: {}'.format(stop-start))
 
     img = cv2.imread(ims[0])
     left_up = [(cx - w/2)*img.shape[1], (cy - h/2)*img.shape[0]]
     right_down = [(cx + w/2)*img.shape[1], (cy + h/2)*img.shape[0]]
     cv2.rectangle(img, (int(left_up[0]), int(left_up[1])), (int(right_down[0]), int(right_down[1])), (0, 0, 255), 2)
     #   The first character is Chinese character, can not be printed normally, thus is omitted.
+    print(provinces[labelPred[0]])
     lpn = alphabets[labelPred[1]] + ads[labelPred[2]] + ads[labelPred[3]] + ads[labelPred[4]] + ads[labelPred[5]] + ads[labelPred[6]]
     cv2.putText(img, lpn, (int(left_up[0]), int(left_up[1])-20), cv2.FONT_ITALIC, 2, (0, 0, 255))
-    cv2.imwrite(ims[0], img)
+    cv2.imwrite(path.join('res', ims[0].split('/')[-1]), img)
 
